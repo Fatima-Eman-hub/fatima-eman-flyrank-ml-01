@@ -1,0 +1,10 @@
+{
+  "precision_at_50_grouped_split": 0.7,
+  "precision_at_50_random_split": 0.9,
+  "baseline_precision_at_50": 0.5,
+  "base_rate": 0.578,
+  "validation_month": "2026-03",
+  "split_type": "client-grouped (GroupShuffleSplit)",
+  "n_clients": 55,
+  "n_pages_scored": 331437
+}
