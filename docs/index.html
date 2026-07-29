@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Which Pages Should Be Reviewed First? A Client-Grouped Content Refresh Scoring Model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --text:#171717; --muted:#5A5A5A; --bg:#FAFAFA; --card:#FFFFFF; --border:#E5E5E5; --accent:#087A96; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; line-height:1.65; }
+  .wrap { max-width:760px; margin:0 auto; padding:0 24px 80px; }
+  h1,h2,.mark { font-family:'Space Grotesk',sans-serif; font-weight:500; }
+  a { color:var(--accent); text-decoration:underline; text-underline-offset:2px; }
+  nav { padding:32px 0 40px; }
+  .mark { font-size:16px; }
+  h1.title { font-size:30px; line-height:1.3; margin:24px 0 8px; }
+  .byline { color:var(--muted); font-size:14px; margin-bottom:36px; }
+  h2 { font-size:21px; margin:44px 0 12px; padding-top:8px; border-top:0.5px solid var(--border); }
+  h1.title + .abstract-box h2:first-child, section:first-of-type h2 { border-top:none; padding-top:0; }
+  p { font-size:15.5px; margin-bottom:14px; }
+  .abstract-box { background:var(--card); border:0.5px solid var(--border); border-radius:12px; padding:24px; margin-bottom:12px; }
+  .abstract-box h2 { margin-top:0; border-top:none; padding-top:0; }
+  table { width:100%; border-collapse:collapse; margin:16px 0 20px; font-size:14.5px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:0.5px solid var(--border); }
+  th { color:var(--muted); font-weight:500; font-size:13px; text-transform:uppercase; letter-spacing:0.03em; }
+  .caption { color:var(--muted); font-size:13.5px; margin-top:-8px; margin-bottom:20px; }
+  ul, ol { margin:0 0 16px 20px; font-size:15.5px; }
+  li { margin-bottom:6px; }
+  code { background:var(--card); border:0.5px solid var(--border); border-radius:4px; padding:1px 5px; font-size:13.5px; }
+  .status-tag { display:inline-block; font-size:12px; color:var(--muted); border:0.5px solid var(--border); border-radius:999px; padding:2px 10px; margin-bottom:8px; }
+  footer { padding-top:48px; margin-top:24px; border-top:0.5px solid var(--border); color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <nav><a href="https://fatimaeman.netlify.app/" class="mark" style="color:var(--text); text-decoration:none;">FE</a></nav>
+
+  <h1 class="title">Which Pages Should Be Reviewed First? A Client-Grouped Content Refresh Scoring Model</h1>
+  <p class="byline">Fatima Eman &middot; FlyRank ML Engineering Internship, Capstone &middot; July&ndash;August 2026</p>
+
+  <div class="abstract-box">
+    <h2>Abstract</h2>
+    <p>Content teams reviewing hundreds of pages need a way to decide which ones to look at first, but a simple hand-written rule turns out to be an unreliable guide. Using FlyRank's pseudonymized search-performance warehouse (78.8M daily rows across 70 clients), I built and validated a page-level scoring model that predicts whether a page's traffic will decline in the following month, using only observable pre-decision signals (impressions, search position, content age, and analytics availability). Under an honest, client-grouped validation split &mdash; which prevents a model from learning client-specific shortcuts &mdash; a random forest model reached a Precision@50 of 0.700, clearly ahead of the hand-written baseline rule (0.500) and the base rate (0.578); a naive random split inflated the same model's apparent score to 0.900, demonstrating exactly the kind of leakage this validation design was built to catch. This is a decision-support tool for prioritizing manual review, not a causal claim that refreshing a page will recover its traffic.</p>
+  </div>
+
+  <h2>Introduction &amp; Problem Statement</h2>
+  <p>FlyRank's content teams are responsible for reviewing large inventories of client pages with limited time. In practice, this means picking a handful of pages to look at first out of hundreds or thousands. The existing approach relies on hand-written rules &mdash; for example, flagging a page as worth reviewing if it is both stale (not updated in 180+ days) and still visible (500+ impressions). This works as a starting point, but it is a coarse filter: it can only combine a couple of signals with a hard cutoff, and it cannot weigh position, traffic, and freshness together the way a learned model can.</p>
+  <p>The decision this work supports is simple to state and hard to get right: <em>given everything knowable about a page today, which pages are worth a human's limited review time first?</em> Getting this wrong has a real, if modest, cost &mdash; time spent reviewing a page that didn't need it, while a genuinely declining page waits longer.</p>
+
+  <h2>Data</h2>
+  <p>This work uses the FlyRank ML Internship warehouse release (build <code>v20260703</code>), a pseudonymized snapshot of real client search-performance data, hosted on Hugging Face. Two tables were used:</p>
+  <ul>
+    <li><code>fact_content_daily_performance</code> &mdash; 78,835,655 rows, grain of report_date &times; client &times; content item, spanning 2025-01-27 to 2026-06-30.</li>
+    <li><code>dim_content</code> &mdash; 519,606 rows, one per pseudonymized content item, providing content creation dates.</li>
+  </ul>
+  <p>Features were built from <strong>March 2026</strong> (a mid-panel month, deliberately not the final month in the release, which is reserved to avoid natural outcome-window bias). The label was built from <strong>April 2026</strong> impressions, so that every feature is knowable strictly before the outcome it predicts.</p>
+  <p><strong>Excluded, and why:</strong> FlyRank's own product decision flags (<code>health_score</code>, <code>priority_score</code>, <code>action_type</code>, <code>refresh_tier</code>) are never used as features, per the internship's observable-only data discipline &mdash; including them would let the model re-learn the existing rule rather than find new signal. Raw client names, domains, URLs, and query text are never referenced anywhere in this work or its outputs.</p>
+
+  <h2>Methodology</h2>
+  <p><strong>Assumptions.</strong> The core assumption is that a page's near-term trajectory (declining vs. not) is predictable from its own recent observable signals, and that this relationship is reasonably stable across the ~70 clients in this panel. History depth varies substantially by client, which is addressed in Limitations.</p>
+  <p><strong>Features</strong> (all computed from March 2026 or a fixed past date, never from the label window):</p>
+  <table>
+    <tr><th>Feature</th><th>Knowable at decision time because&hellip;</th></tr>
+    <tr><td><code>impressions_march</code></td><td>GSC impressions are logged as they happen; complete by month-end.</td></tr>
+    <tr><td><code>avg_position</code></td><td>Search position is recorded daily, fully observed by month-end.</td></tr>
+    <tr><td><code>content_age_days</code></td><td>Derived from a fixed past creation date.</td></tr>
+    <tr><td><code>days_with_ga4</code></td><td>Counts already-passed days with analytics available, not future behavior.</td></tr>
+  </table>
+  <p><strong>Label.</strong> <code>is_declining</code> = 1 if a page's April 2026 impressions fell below its March 2026 impressions, else 0. This is a future-window outcome label, not a reproduction of any current-window product bucket.</p>
+  <p><strong>Baseline.</strong> A transparent hand-written rule: flag a page if <code>content_age_days &ge; 180</code> AND <code>impressions_march &ge; 500</code>, scored by traffic volume among qualifying pages.</p>
+  <p><strong>Models.</strong> Logistic regression (readable, linear) and random forest (non-linear, ensemble), both with <code>class_weight="balanced"</code> and <code>random_state=42</code> fixed for reproducibility.</p>
+  <p><strong>Validation design.</strong> A client-grouped split (<code>GroupShuffleSplit</code>, 75/25) ensures no client's pages appear in both train and test &mdash; the realistic scenario, since the model must generalize to clients it has limited history with, not memorize client-specific quirks.</p>
+  <p><strong>Leakage checks performed:</strong> confirmed no product decision flags, no <code>trend_direction</code>/<code>trend_pct</code> (label-derived fields) in any feature; confirmed no preprocessing was fit on the full dataset before splitting; and directly demonstrated the cost of skipping this discipline &mdash; see Results.</p>
+
+  <h2>Results</h2>
+  <p>Precision@50 (of the top 50 flagged pages, how many were actually declining) on the held-out test set:</p>
+  <table>
+    <tr><th>Method</th><th>Precision@50</th></tr>
+    <tr><td>Baseline rule (stale + visible)</td><td>0.500</td></tr>
+    <tr><td>Base rate (random guessing)</td><td>0.578</td></tr>
+    <tr><td>Logistic regression</td><td>0.660</td></tr>
+    <tr><td>Random forest</td><td><strong>0.700</strong></td></tr>
+  </table>
+  <p class="caption">Client-grouped split, March 2026 features &rarr; April 2026 label, n as described in Data.</p>
+  <p>Two findings are worth highlighting. First, the baseline rule performed <em>below</em> the base rate on this split &mdash; a genuinely humbling result showing the hand-written threshold missed most of the true positives in this panel, more than it caught. Second, and central to this paper's methodology point: the same random forest model scored <strong>0.900</strong> under a naive random train/test split &mdash; a full 0.200 higher than its honest, client-grouped score of 0.700. That gap is not noise; it is client-identifiable signal leaking across the split, exactly the failure mode a grouped split exists to prevent.</p>
+  <p>Feature importance (random forest): <code>avg_position</code> (0.366) was the strongest driver, followed by <code>content_age_days</code> (0.287) and <code>impressions_march</code> (0.284), with <code>days_with_ga4</code> contributing little (0.063) &mdash; directionally sensible, since search position plausibly matters more to future traffic than raw volume or staleness alone.</p>
+
+  <h2>Limitations &amp; Honest Framing</h2>
+  <ul>
+    <li>This is <strong>decision-support, not causal</strong>: a page flagged as high-risk is a candidate for review, not proof that refreshing it will recover its traffic. No experiment or matched control was run to test that causal claim.</li>
+    <li><strong>Single snapshot:</strong> results are based on one month-to-month window (March&rarr;April 2026); seasonal effects specific to this period have not been tested against other months.</li>
+    <li><strong>Unbalanced panel:</strong> client history depth varies substantially; clients with little history are under-represented, and results may not generalize evenly across all client types.</li>
+    <li><strong>Score formula limitation:</strong> within the qualifying baseline group, ranking is driven by raw traffic volume alone and does not weigh search position &mdash; a real gap a learned ranking model closes only partially, since the model's own score also does not explicitly optimize rank ordering beyond classification probability.</li>
+    <li>A closely related residual risk: <code>content_age_days</code>, the second-most important feature, may partly encode a training-split-specific pattern rather than a fully stable signal &mdash; three concrete false-positive cases in development work shared this profile (young, well-positioned, high-confidence-but-wrong predictions), suggesting some caution before treating this feature's contribution as fully generalizable.</li>
+  </ul>
+
+  <h2>Ranked Recommendations</h2>
+  <p>Pages are scored and assigned one of three reason codes, each mapped to a suggested action for human review &mdash; never an automatic edit:</p>
+  <table>
+    <tr><th>Reason code</th><th>Suggested action</th><th>When it fires</th></tr>
+    <tr><td><code>stale_high_value</code></td><td>Review for refresh</td><td>Age &ge; 365 days and impressions &ge; 500</td></tr>
+    <tr><td><code>aging_visible_page</code></td><td>Review for refresh</td><td>Age &ge; 180 days and impressions &ge; 500</td></tr>
+    <tr><td><code>visible_low_rank</code></td><td>Review for CTR/intent fix</td><td>Impressions &ge; 500 and average position &gt; 10</td></tr>
+  </table>
+  <p><strong>Human review is required before any action</strong>, checking specifically: whether the page was recently updated outside the logged staleness field; whether a sibling page may be absorbing the same demand (consolidation, not decline); and whether the reason code matches what a reviewer actually sees on the page.</p>
+  <p><strong>What must never be automated:</strong> no page should be auto-refreshed or auto-published from this output alone; FlyRank's own product decision flags must never be fed back into this model as features; and no external claim should use causal language ("this will improve traffic") &mdash; only decision-support language ("this page is a candidate worth reviewing").</p>
+  <p><strong>Monitoring triggers:</strong> a material shift in the client mix, a drop in Precision@50 when re-scored on a new month against the 0.700 baseline established here, or a sharp change in how many pages clear the staleness/visibility thresholds each month, would each indicate the model or thresholds need revisiting.</p>
+
+  <h2>Reproducibility</h2>
+  <p>All code, notebooks, and outputs are available in the project repository:</p>
+  <ul>
+    <li>Repository: <a href="https://github.com/Fatima-Eman-hub/fatima-eman-flyrank-ml-01" target="_blank">github.com/Fatima-Eman-hub/fatima-eman-flyrank-ml-01</a></li>
+    <li>Notebooks (in order): <code>w01_research_question.ipynb</code> &middot; <code>w02_ml_task_framing.ipynb</code> &middot; <code>w03_data_contract.ipynb</code> &middot; <code>w04_baseline_score.ipynb</code> &middot; <code>w05_model.ipynb</code> &middot; <code>w06_validation_audit.ipynb</code> &middot; <code>w07_action_playbook.ipynb</code> &middot; <code>capstone.ipynb</code></li>
+    <li>All random seeds fixed at <code>random_state=42</code> throughout; re-running any notebook against the same data release reproduces the reported numbers.</li>
+  </ul>
+
+  <h2>Acknowledgments &amp; Data Credit</h2>
+  <p>Built on the FlyRank ML Internship dataset. Learn more at <a href="https://flyrank.ai" target="_blank">flyrank.ai</a>.</p>
+
+  <footer>&copy; 2026 Fatima Eman &middot; <a href="https://fatimaeman.netlify.app/">fatimaeman.netlify.app</a></footer>
+</div>
+</body>
+</html>
